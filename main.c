@@ -6,7 +6,7 @@
 * Related Document: See README.md
 *
 ********************************************************************************
-* Copyright 2023-2024, Cypress Semiconductor Corporation (an Infineon company) or
+* Copyright 2023-2025, Cypress Semiconductor Corporation (an Infineon company) or
 * an affiliate of Cypress Semiconductor Corporation.  All rights reserved.
 *
 * This software, including source code, documentation and related
@@ -41,27 +41,26 @@
 /*******************************************************************************
 * Includes
 ********************************************************************************/
-
+#include <stdio.h>
 #include "cy_pdl.h"
 #include "cybsp.h"
-#include "cy_retarget_io.h"
-
 #include "SelfTest_I2C_SCB.h"
 
 /*******************************************************************************
 * Macros
 ********************************************************************************/
-
 #define MAX_INDEX_VAL (0xFFF0u)
+#define I2C_TEST_RESULT "I2C Protocol communication test at run-time..."
+#define LED_DELAY_MS 50
 
 /*******************************************************************************
 * Global Variables
 ********************************************************************************/
-
 static cy_stc_scb_i2c_context_t CYBSP_DUT_I2C_MASTER_context;
 static cy_stc_scb_i2c_context_t CYBSP_DUT_I2C_SLAVE_context;
 static uint8_t i2c_slave_read_buf[PACKET_SIZE];
 static uint8_t i2c_slave_write_buf[PACKET_SIZE];
+char uart_print_buff[100]={0};
 
 /*******************************************************************************
 * Function Prototypes
@@ -86,10 +85,10 @@ static void SelfTest_I2C_SCB_Init(void);
 *  int
 *
 *******************************************************************************/
-
 int main(void)
 {
     cy_rslt_t result;
+    cy_stc_scb_uart_context_t CYBSP_UART_context;
 
     uint8_t ret;
 
@@ -105,23 +104,19 @@ int main(void)
     /* Enable global interrupts */
     __enable_irq();
 
-    /* Initialize retarget-io to use the debug UART port */
-    result = cy_retarget_io_init(CYBSP_DEBUG_UART_TX, CYBSP_DEBUG_UART_RX, CY_RETARGET_IO_BAUDRATE);
-    if (result != CY_RSLT_SUCCESS)
-    {
-        CY_ASSERT(0);
-    }
+    /* Configure and enable the UART peripheral */
+    Cy_SCB_UART_Init(CYBSP_UART_HW, &CYBSP_UART_config, &CYBSP_UART_context);
+    Cy_SCB_UART_Enable(CYBSP_UART_HW);
 
     /* \x1b[2J\x1b[;H - ANSI ESC sequence for clear screen */
-    printf("\x1b[2J\x1b[;H");
-    printf("\r\nClass-B Safety Test: I2C\r\n");
+    Cy_SCB_UART_PutString(CYBSP_UART_HW, "\x1b[2J\x1b[;H");
+    Cy_SCB_UART_PutString(CYBSP_UART_HW, "\r\nClass-B Safety Test: I2C\r\n");
 
     /* Init I2C SelfTest*/
     SelfTest_I2C_SCB_Init();
 
     for (;;)
     {
-
         /*******************************/
         /* Run I2C Self Test...       */
         /*******************************/
@@ -130,20 +125,27 @@ int main(void)
                 i2c_slave_read_buf, i2c_slave_write_buf);
         if ((PASS_COMPLETE_STATUS != ret) && (PASS_STILL_TESTING_STATUS != ret))
         {
-
             /* Process error */
-            printf("\r\nI2C Protocol test: error \r\n");
+            Cy_SCB_UART_PutString(CYBSP_UART_HW, "\r\nI2C Protocol test: error \r\n");
+            /* Set the user LED state */
+            Cy_GPIO_Set(CYBSP_USER_LED_PORT, CYBSP_USER_LED_PIN);
 
-            /* For demo purposes in case of error detection
-             * message is printed to DEBUG Output and code execution
-             * is stopped here in a while loop */
+            /* In case of error detection message is printed to DEBUG Output and the user
+             * LED is set. Also the code execution is stopped here in a while loop */
             while (1)
             {
             }
         }
 
         /* Print test counter */
-        printf("\rI2C Protocol communication testing at run-time... count=%d", count);
+        sprintf(uart_print_buff, "\r%s count=%d", I2C_TEST_RESULT, count);
+        Cy_SCB_UART_PutString(CYBSP_UART_HW, uart_print_buff);
+
+        /* Toggle the user LED state */
+        Cy_GPIO_Inv(CYBSP_USER_LED_PORT, CYBSP_USER_LED_PIN);
+
+        /* Wait for 0.05 seconds */
+        Cy_SysLib_Delay(LED_DELAY_MS);
 
         count++;
         if (count > MAX_INDEX_VAL)
@@ -152,9 +154,6 @@ int main(void)
         }
     }
 }
-
-
-
 
 /*****************************************************************************
 * Function Name: SelfTest_I2C_SCB_Init
@@ -261,4 +260,5 @@ static void CYBSP_DUT_I2C_SLAVE_Interrupt(void)
 {
     Cy_SCB_I2C_Interrupt(CYBSP_DUT_I2C_SLAVE_HW, &CYBSP_DUT_I2C_SLAVE_context);
 }
+
 /* [] END OF FILE */
